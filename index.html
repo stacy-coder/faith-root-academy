@@ -1330,15 +1330,45 @@
       <div id="schedule-overview"></div>
     </div>
 
-    <!-- ── FEE CATEGORIES ── -->
-    <div class="card">
-      <h2>⚙️ Fee Categories Reference</h2>
-      <p style="font-size:.84rem;color:var(--gray-3);margin-bottom:1rem">These are the fee categories applied to all students. BECE Registration applies to JHS only.</p>
-      <ul style="font-size:.9rem;line-height:2.2;padding-left:1.2rem">
-        <li>School Fees (Tuition)</li><li>PTA Levy</li><li>Uniform / Dress</li>
-        <li>Books &amp; Stationery</li><li>Examination Fees</li>
-        <li>Computer / ICT Levy</li><li>BECE Registration <em>(JHS only)</em></li>
-      </ul>
+    <!-- ── FEE CATEGORIES MANAGER ── -->
+    <div class="card" id="fee-cats-card">
+      <h2>⚙️ Fee Categories <span class="role-badge role-admin" style="font-size:.7rem;vertical-align:middle">Admin Only</span></h2>
+      <p style="font-size:.84rem;color:var(--gray-3);margin-bottom:1.2rem">
+        Add, rename or remove fee categories. Changes take effect the next time you set up a fee schedule.
+        <strong>Tip:</strong> use "Grade restriction" to limit a category to JHS only (e.g. BECE Registration) or a specific grade.
+      </p>
+
+      <!-- existing categories list -->
+      <div id="fee-cats-list" style="margin-bottom:1.2rem"></div>
+
+      <!-- add new category form -->
+      <div id="fee-cats-add-form" style="background:var(--gray-1);border-radius:10px;padding:1rem 1.2rem;display:none">
+        <div style="font-size:.84rem;font-weight:700;color:var(--green);margin-bottom:.8rem">➕ New Fee Category</div>
+        <div class="form-grid">
+          <div>
+            <label>Category Name</label>
+            <input type="text" id="new-cat-label" placeholder="e.g. Excursion Fee"/>
+          </div>
+          <div>
+            <label>Grade Restriction</label>
+            <select id="new-cat-restrict">
+              <option value="none">All Grades</option>
+              <option value="jhs">JHS Only</option>
+              <option value="primary">Primary Only</option>
+              <option value="kg">KG Only</option>
+              <option value="nursery">Nursery / Creche Only</option>
+            </select>
+          </div>
+        </div>
+        <div class="btn-row" style="margin-top:.8rem">
+          <button class="btn btn-primary" onclick="addFeeCategory()">✅ Add Category</button>
+          <button class="btn" onclick="document.getElementById('fee-cats-add-form').style.display='none'">Cancel</button>
+        </div>
+      </div>
+
+      <div class="btn-row" style="margin-top:.8rem">
+        <button class="btn btn-gold" id="fee-cats-add-btn" onclick="document.getElementById('fee-cats-add-form').style.display='';this.style.display='none'">➕ Add New Category</button>
+      </div>
     </div>
 
     <!-- ── RESET ── -->
@@ -1623,7 +1653,7 @@ async function deleteUser(uid) {
 const TERMS = ['Term 1', 'Term 2', 'Term 3'];
 
 // Fee categories: label + key + JHS-only flag
-const FEE_CATS = [
+let FEE_CATS = [
   { label: 'School Fees (Tuition)',   key: 'tuition',    jhsOnly: false },
   { label: 'PTA Levy',               key: 'pta',        jhsOnly: false },
   { label: 'Uniform / Dress',        key: 'uniform',    jhsOnly: false },
@@ -1698,7 +1728,7 @@ function showTab(id) {
   if (id === 'students')  renderStudentList();
   if (id === 'reports')   renderReport();
   if (id === 'dashboard') renderDashboard();
-  if (id === 'settings')  { renderFeeScheduleInputs(); renderScheduleOverview(); renderUserList(); }
+  if (id === 'settings')  { renderFeeScheduleInputs(); renderScheduleOverview(); renderUserList(); renderFeeCatsList(); }
   if (id === 'import')    resetImport();
   if (id === 'store')     initStore();
 }
@@ -1788,6 +1818,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
           applyRoleUI();
           await loadAllData();
+          await loadFeeCats();
           hideLoading();
           document.getElementById('auth-screen').classList.add('hidden');
           renderDashboard();
@@ -2831,6 +2862,95 @@ function saveFeeSchedule() {
   // Also rebuild the add-student fee inputs in case that tab is open
   if (document.getElementById('new-grade')?.value === grade) buildFeeInputs();
 }
+
+// ── Fee Category Manager ─────────────────────────────────
+
+function renderFeeCatsList() {
+  const container = document.getElementById('fee-cats-list');
+  if (!container) return;
+  const isAdmin = currentUser?.role === 'admin';
+  if (!isAdmin) {
+    document.getElementById('fee-cats-card').style.display = 'none';
+    return;
+  }
+  if (!FEE_CATS.length) {
+    container.innerHTML = '<p style="color:var(--gray-3);font-size:.88rem">No fee categories yet. Add one below.</p>';
+    return;
+  }
+  const restrictLabel = { none: 'All Grades', jhs: 'JHS Only', primary: 'Primary Only', kg: 'KG Only', nursery: 'Nursery/Creche Only' };
+  container.innerHTML = FEE_CATS.map((cat, i) => `
+    <div style="display:flex;align-items:center;gap:.8rem;padding:.6rem .8rem;border-radius:8px;background:${i%2===0?'var(--gray-1)':'white'};margin-bottom:.3rem">
+      <div style="flex:1">
+        <strong style="font-size:.9rem">${cat.label}</strong>
+        <span style="font-size:.78rem;color:var(--gray-3);margin-left:.6rem">${restrictLabel[cat.restrict||'none']||'All Grades'}</span>
+      </div>
+      <input type="text" value="${cat.label}" onchange="renameFeeCategory(${i}, this.value)"
+        style="width:200px;padding:.3rem .6rem;font-size:.85rem;border:1px solid var(--gray-2);border-radius:6px"/>
+      <select onchange="restrictFeeCategory(${i}, this.value)" style="padding:.3rem .5rem;font-size:.82rem;border:1px solid var(--gray-2);border-radius:6px">
+        <option value="none" ${(cat.restrict||'none')==='none'?'selected':''}>All Grades</option>
+        <option value="jhs"  ${cat.restrict==='jhs'?'selected':''}>JHS Only</option>
+        <option value="primary" ${cat.restrict==='primary'?'selected':''}>Primary Only</option>
+        <option value="kg"   ${cat.restrict==='kg'?'selected':''}>KG Only</option>
+        <option value="nursery" ${cat.restrict==='nursery'?'selected':''}>Nursery/Creche Only</option>
+      </select>
+      <button onclick="deleteFeeCategory(${i})" style="background:var(--danger);color:white;border:none;border-radius:6px;padding:.3rem .7rem;cursor:pointer;font-size:.82rem">🗑 Remove</button>
+    </div>
+  `).join('');
+}
+
+function renameFeeCategory(index, newLabel) {
+  if (!newLabel.trim()) return toast('⚠️ Category name cannot be empty.');
+  FEE_CATS[index].label = newLabel.trim();
+  saveFeeCats();
+  toast('✅ Category renamed.');
+}
+
+function restrictFeeCategory(index, value) {
+  FEE_CATS[index].restrict = value;
+  // keep jhsOnly in sync for backward compat
+  FEE_CATS[index].jhsOnly = value === 'jhs';
+  saveFeeCats();
+  toast('✅ Restriction updated.');
+}
+
+function deleteFeeCategory(index) {
+  const cat = FEE_CATS[index];
+  if (!confirm(`Remove "${cat.label}"? This won't delete existing payment records, but it will stop appearing in new fee schedules.`)) return;
+  FEE_CATS.splice(index, 1);
+  saveFeeCats();
+  renderFeeCatsList();
+  toast('✅ Category removed.');
+}
+
+function addFeeCategory() {
+  const label    = document.getElementById('new-cat-label')?.value.trim();
+  const restrict = document.getElementById('new-cat-restrict')?.value || 'none';
+  if (!label) return toast('⚠️ Please enter a category name.');
+  const key = label.toLowerCase().replace(/[^a-z0-9]/g, '_') + '_' + Date.now();
+  FEE_CATS.push({ label, key, restrict, jhsOnly: restrict === 'jhs' });
+  saveFeeCats();
+  renderFeeCatsList();
+  document.getElementById('new-cat-label').value = '';
+  document.getElementById('fee-cats-add-form').style.display = 'none';
+  document.getElementById('fee-cats-add-btn').style.display = '';
+  toast('✅ Category added.');
+}
+
+async function saveFeeCats() {
+  await dbSet('appData/feeCategories', FEE_CATS);
+}
+
+async function loadFeeCats() {
+  const saved = await dbGet('appData/feeCategories');
+  if (saved && Array.isArray(saved) && saved.length > 0) {
+    FEE_CATS.length = 0;
+    saved.forEach(c => FEE_CATS.push(c));
+  }
+  // else keep the defaults already in FEE_CATS
+  renderFeeCatsList();
+}
+
+// ─────────────────────────────────────────────────────────
 
 function previewAffected() {
   const grade = document.getElementById('sched-grade')?.value;
